@@ -22,7 +22,8 @@ public class Purchase {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
+    private  String supplierPhone;
+    private String supplierEmail;
     private String supplierName;
     private LocalDate purchaseDate;
     private BigDecimal totalAmount;

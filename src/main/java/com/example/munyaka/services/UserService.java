@@ -4,6 +4,7 @@ import com.example.munyaka.DTO.LoginResponse;
 import com.example.munyaka.DTO.UserDTO;
 import com.example.munyaka.repository.UserRepository;
 import com.example.munyaka.tables.User;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -124,5 +125,31 @@ public class UserService {
         } catch (Exception e) {
             return new LoginResponse(false, "Authentication failed: " + e.getMessage());
         }
+    }
+    @PostConstruct
+    public void init() {
+        createDefaultAdminIfNeeded();
+    }
+
+    private void createDefaultAdminIfNeeded() {
+        if (userRepository.count() == 0) {
+            User admin = new User();
+            admin.setName("System Administrator");
+            admin.setEmail("bwanamaina2010@gmail.com");
+
+            admin.setPassword("admin123"); // Hashed password
+            admin.setRole("ADMIN");
+            admin.setStatus("ACTIVE");
+            admin.setPhone("+255000000000");
+
+
+            userRepository.save(admin);
+            System.out.println(" Default admin user created successfully");
+        }
+    }
+
+    // Add this method to your service for the CommandLineRunner
+    public long getUserCount() {
+        return userRepository.count();
     }
 }

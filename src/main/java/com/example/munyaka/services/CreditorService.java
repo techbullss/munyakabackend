@@ -57,6 +57,9 @@ public class CreditorService {
         return new CreditorResponse(
                 p.getId(),
                 p.getSupplierName(),
+                p.getSupplierEmail(),
+                p.getSupplierPhone(),
+
 
                 p.getBalanceDue(),
                 p.getPurchaseDate().plusDays(30), // example due date

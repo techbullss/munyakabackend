@@ -1,9 +1,6 @@
 package com.example.munyaka.controllers;
 
-import com.example.munyaka.DTO.DebtorDTO;
-import com.example.munyaka.DTO.PaymentRequest;
-import com.example.munyaka.DTO.SaleDTO;
-import com.example.munyaka.DTO.SaleItemDTOs;
+import com.example.munyaka.DTO.*;
 import com.example.munyaka.repository.ItemRepository;
 import com.example.munyaka.repository.SaleRepository;
 import com.example.munyaka.tables.*;
@@ -31,6 +28,8 @@ public class SaleController {
 private ItemRepository itemRepository;
 @Autowired
     private SaleRepository saleRepository;
+@Autowired
+private SaleService saleService;
     @PostMapping
     public SaleReceiptResponse createSale(@RequestBody SaleRequest request) {
         Sale sale = new Sale();
@@ -82,9 +81,7 @@ private ItemRepository itemRepository;
         //  Determine payment status
         double totalAmount = request.getTotalAmount();
         double paidAmount = request.getAmountPaid();
-        double balance = paidAmount - totalAmount; // signed balance (+/-)
 
-        sale.setBalanceDue(balance);
 
 // Status logic
         if (paidAmount == 0) {
@@ -168,8 +165,8 @@ private ItemRepository itemRepository;
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "saleDate,desc") String sort) {
 
-        LocalDateTime startDate = LocalDateTime.parse(start + "T00:00:00");
-        String endDate = end + "T23:59:59";
+        LocalDate startDate = LocalDate.parse(start );
+        String endDate = end ;
 
         // Parse sort param
         String[] sortParams = sort.split(",");
@@ -181,14 +178,14 @@ private ItemRepository itemRepository;
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortField));
 
         // Fetch paginated sales (for table display)
-        Page<Sale> salesPage = saleRepository.findBySaleDateBetween(startDate, LocalDateTime.parse(endDate), pageable);
+        Page<Sale> salesPage = saleRepository.findBySaleDateBetween(startDate, LocalDate.parse(endDate), pageable);
         List<SaleSummaryDTO> saleDTOs = salesPage.getContent()
                 .stream()
                 .map(SaleSummaryDTO::new)  // ✅ DTO must copy sale.getProfit()
                 .toList();
 
         // Fetch all sales (for summary calculations, not paginated)
-        List<Sale> allSales = saleRepository.findBySaleDateBetween(startDate, LocalDateTime.parse(endDate));
+        List<Sale> allSales = saleRepository.findBySaleDateBetween(startDate, LocalDate.parse(endDate));
         List<SaleSummaryDTO> allSaleDTOs = allSales.stream()
                 .map(SaleSummaryDTO::new)
                 .toList();
@@ -212,10 +209,10 @@ private ItemRepository itemRepository;
                 java.time.LocalDate.parse(end).atStartOfDay()
         ).toDays() + 1;
 
-        LocalDateTime prevStart = LocalDateTime.parse(LocalDate.parse(start).minusDays(daysBetween) + "T00:00:00");
+        LocalDate prevStart = startDate.minusDays(daysBetween);
         String prevEnd = String.valueOf(LocalDate.parse(start).minusDays(1));
 
-        double prevAmount = saleRepository.findBySaleDateBetween(prevStart, LocalDateTime.parse(prevEnd))
+        double prevAmount = saleRepository.findBySaleDateBetween(prevStart, LocalDate.parse(prevEnd))
                 .stream()
                 .mapToDouble(s -> s.getTotalAmount() != null ? s.getTotalAmount() : 0.0)
                 .sum();
@@ -281,7 +278,7 @@ private ItemRepository itemRepository;
     @GetMapping("/debtors")
     public ResponseEntity<List<DebtorDTO>> getDebtors() {
         try {
-            List<Sale> pendingSales = saleRepository.findByBalanceDueLessThan(0.0);
+            List<Sale> pendingSales = saleRepository.findByBalanceDueGreaterThan(0.0);
             Map<String, DebtorDTO> debtorMap = new HashMap<>();
 
             for (Sale sale : pendingSales) {
@@ -320,7 +317,7 @@ private ItemRepository itemRepository;
     @GetMapping("/pending")
     public ResponseEntity<List<SaleDTO>> getPendingSales() {
         try {
-            List<Sale> pendingSales = saleRepository.findByBalanceDueLessThan(0.0);
+            List<Sale> pendingSales = saleRepository.findByBalanceDueGreaterThan(0.0);
             List<SaleDTO> saleDTOs = pendingSales.stream()
                     .map(this::convertToSaleDTO)
                     .collect(Collectors.toList());
@@ -331,10 +328,12 @@ private ItemRepository itemRepository;
     }
 
     // Record payment for a specific sale
-    @PostMapping("/{id}/payment")
+    @PostMapping("/payment/{id}")
     public ResponseEntity<SaleDTO> recordPayment(
             @PathVariable Long id,
             @RequestBody PaymentRequest paymentRequest) {
+        System.out.println("Received payment for sale ID: " + id +
+                ", Amount: " + paymentRequest.getPaymentAmount());
         try {
             Optional<Sale> saleOpt = saleRepository.findById(id);
             if (saleOpt.isEmpty()) {
@@ -445,5 +444,13 @@ private ItemRepository itemRepository;
         } catch (Exception e) {
             return false;
         }
+    }
+    @PostMapping("/{saleId}/return")
+    public ResponseEntity<?> returnSaleItems(
+            @PathVariable Long saleId,
+            @RequestBody ReturnRequest request) {
+
+        saleService.processReturn(saleId, request.getItems());
+        return ResponseEntity.ok("Return processed successfully");
     }
 }

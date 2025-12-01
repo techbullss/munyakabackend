@@ -9,6 +9,10 @@ import com.example.munyaka.tables.SellingUnit;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 
@@ -45,7 +49,7 @@ public class ItemServiceImpl implements ItemService {
 
     @Override
     public ItemResponseDTO createItem(ItemRequestDTO itemRequestDTO) {
-        validateSellingUnitConstraints(itemRequestDTO);
+
         validateVariants(itemRequestDTO);
 
         Item item = convertToEntity(itemRequestDTO);
@@ -69,11 +73,14 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    public List<ItemResponseDTO> getAllItems() {
-        return itemRepository.findAll().stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
+    public Page<ItemResponseDTO> getAllItems(int page, int size) {
+        // Sort by ID descending to show newest items first
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+        Page<Item> itemsPage = itemRepository.findAll(pageable);
+
+        return itemsPage.map(this::convertToDTO);
     }
+
 
     @Override
     public List<ItemResponseDTO> getItemsByCategory(String category) {
@@ -84,7 +91,7 @@ public class ItemServiceImpl implements ItemService {
 
     @Override
     public ItemResponseDTO updateItem(Long id, ItemRequestDTO itemRequestDTO) {
-        validateSellingUnitConstraints(itemRequestDTO);
+
         validateVariants(itemRequestDTO);
 
         Item existingItem = itemRepository.findById(id)
@@ -99,8 +106,7 @@ public class ItemServiceImpl implements ItemService {
         existingItem.setSellingPrice(itemRequestDTO.getSellingPrice());
         existingItem.setSupplier(itemRequestDTO.getSupplier());
         existingItem.setSellingUnit(itemRequestDTO.getSellingUnit());
-        existingItem.setLengthType(itemRequestDTO.getLengthType());
-        existingItem.setPiecesPerBox(itemRequestDTO.getPiecesPerBox());
+
 
         // Update variants
         existingItem.getVariants().clear();
@@ -138,31 +144,7 @@ public class ItemServiceImpl implements ItemService {
         return variantTemplates.getOrDefault(category, new String[0]);
     }
 
-    private void validateSellingUnitConstraints(ItemRequestDTO itemRequestDTO) {
-        // Validate that piecesPerBox is provided when sellingUnit is BOXES
-        if (itemRequestDTO.getSellingUnit() == SellingUnit.BOXES &&
-                (itemRequestDTO.getPiecesPerBox() == null || itemRequestDTO.getPiecesPerBox() <= 0)) {
-            throw new IllegalArgumentException("Pieces per box must be provided and greater than 0 for items sold in boxes");
-        }
 
-        // Validate that lengthType is provided when sellingUnit is LENGTH
-        if (itemRequestDTO.getSellingUnit() == SellingUnit.LENGTH &&
-                itemRequestDTO.getLengthType() == null) {
-            throw new IllegalArgumentException("Length type must be provided for length-based items");
-        }
-
-        // Validate that piecesPerBox is not provided when sellingUnit is not BOXES
-        if (itemRequestDTO.getSellingUnit() != SellingUnit.BOXES &&
-                itemRequestDTO.getPiecesPerBox() != null) {
-            throw new IllegalArgumentException("Pieces per box should only be provided for items sold in boxes");
-        }
-
-        // Validate that lengthType is not provided when sellingUnit is not LENGTH
-        if (itemRequestDTO.getSellingUnit() != SellingUnit.LENGTH &&
-                itemRequestDTO.getLengthType() != null) {
-            throw new IllegalArgumentException("Length type should only be provided for length-based items");
-        }
-    }
 
     private void validateVariants(ItemRequestDTO itemRequestDTO) {
         String category = itemRequestDTO.getCategory();
@@ -206,8 +188,7 @@ public class ItemServiceImpl implements ItemService {
                 .sellingPrice(dto.getSellingPrice())
                 .supplier(dto.getSupplier())
                 .sellingUnit(dto.getSellingUnit())
-                .lengthType(dto.getLengthType())
-                .piecesPerBox(dto.getPiecesPerBox())
+
                 .build();
 
         // Add variants
@@ -234,8 +215,7 @@ public class ItemServiceImpl implements ItemService {
                 .sellingPrice(item.getSellingPrice())
                 .supplier(item.getSupplier())
                 .sellingUnit(item.getSellingUnit())
-                .lengthType(item.getLengthType())
-                .piecesPerBox(item.getPiecesPerBox())
+
                 .imageUrls(item.getImageUrls())
                 .variants(item.getVariants())
                 .build();

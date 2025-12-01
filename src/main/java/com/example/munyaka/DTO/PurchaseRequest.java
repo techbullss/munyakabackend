@@ -6,6 +6,8 @@ import java.util.List;
 
 public record PurchaseRequest(
         String supplierName,
+        String supplierPhone,
+        String supplierEmail,
         LocalDate purchaseDate,
         BigDecimal totalAmount,
         BigDecimal amountPaid,

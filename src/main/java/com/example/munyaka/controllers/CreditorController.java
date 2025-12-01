@@ -23,7 +23,7 @@ public class CreditorController {
             @RequestParam(defaultValue = "10") int size) {
         return creditorService.listCreditors(PageRequest.of(page, size));
     }
-    @PutMapping("/{id}/pay")
+    @PutMapping("/pay/{id}")
     public CreditorResponse recordPayment(
             @PathVariable Long id,
             @RequestBody Map<String, Double> body // expects { "amount": 100.0 }

@@ -7,6 +7,8 @@ import java.time.LocalDate;
 public record CreditorResponse(
         Long id,
         String supplierName,
+        String supplierPhone,
+        String supplierEmail,
 
         BigDecimal balance,
         LocalDate dueDate,

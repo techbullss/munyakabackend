@@ -16,6 +16,7 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+
 public class Item {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,9 +31,7 @@ public class Item {
     private String supplier;
     @Enumerated(EnumType.STRING)
     private SellingUnit sellingUnit;
-    @Enumerated(EnumType.STRING)
-    private LengthType lengthType;
-    private Integer piecesPerBox;
+
     @ElementCollection
     @CollectionTable(name = "item_images", joinColumns = @JoinColumn(name = "item_id"))
     @Column(name = "image_url")

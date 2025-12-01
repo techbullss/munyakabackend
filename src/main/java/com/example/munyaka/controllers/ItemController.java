@@ -3,6 +3,7 @@ import com.example.munyaka.services.ItemService;
 import com.example.munyaka.tables.ItemRequestDTO;
 import com.example.munyaka.tables.ItemResponseDTO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -31,10 +32,14 @@ public class ItemController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ItemResponseDTO>> getAllItems() {
-        List<ItemResponseDTO> items = itemService.getAllItems();
+    public ResponseEntity<Page<ItemResponseDTO>> getAllItems(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        Page<ItemResponseDTO> items = itemService.getAllItems(page, size);
         return ResponseEntity.ok(items);
     }
+
 
     @GetMapping("/category/{category}")
     public ResponseEntity<List<ItemResponseDTO>> getItemsByCategory(@PathVariable String category) {
@@ -76,4 +81,5 @@ public class ItemController {
         String[] variants = itemService.getAvailableVariantsForCategory(category);
         return ResponseEntity.ok(variants);
     }
+
 }

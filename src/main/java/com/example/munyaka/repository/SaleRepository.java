@@ -11,13 +11,14 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface SaleRepository extends JpaRepository<Sale, Long> {
     @Query("SELECT s FROM Sale s WHERE s.saleDate BETWEEN :start AND :end")
-    List<Sale> findBySaleDateBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    List<Sale> findBySaleDateBetween(@Param("start") LocalDate start, @Param("end") LocalDate end);
 
     @Query("SELECT s FROM Sale s WHERE s.saleDate BETWEEN :start AND :end")
-    Page<Sale> findBySaleDateBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end, Pageable pageable);
+    Page<Sale> findBySaleDateBetween(@Param("start") LocalDate start, @Param("end") LocalDate end, Pageable pageable);
 
     List<Sale> findByPaymentStatusAndBalanceDueGreaterThan(String paymentStatus, Double minBalance);
 
@@ -25,7 +26,7 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
     List<Sale> findByCustomerPhoneAndPaymentStatusAndBalanceDueGreaterThan(
             String customerPhone, String paymentStatus, Double minBalance);
 
-    List<Sale> findByBalanceDueLessThan(Double balanceDue);
+    List<Sale> findByBalanceDueGreaterThan(Double balanceDue);
 
     // Find sales by customer phone with balance due
     List<Sale> findByCustomerPhoneAndBalanceDueGreaterThan(String customerPhone, Double balanceDue);
@@ -59,5 +60,6 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
     ORDER BY SUM(si.quantity) DESC
 """)
     List<TopProduct> findTopSellingProducts();
-
+    @Query("SELECT DISTINCT s FROM Sale s LEFT JOIN FETCH s.items i LEFT JOIN FETCH i.product WHERE s.id = :id")
+    Optional<Sale> findByIdWithItems(@Param("id") Long id);
 }

@@ -35,6 +35,8 @@ public class PurchaseService {
                 p.getId(),
                 p.getSupplierName(),
                 p.getPurchaseDate(),
+                p.getSupplierPhone(),
+                p.getSupplierEmail(),
                 p.getTotalAmount(),
                 p.getAmountPaid(),
                 p.getBalanceDue(),
@@ -47,6 +49,8 @@ public class PurchaseService {
     public PurchaseResponse create(PurchaseRequest dto) {
         Purchase p = Purchase.builder()
                 .supplierName(dto.supplierName())
+                .supplierEmail(dto.supplierEmail())
+                .supplierPhone(dto.supplierPhone())
                 .purchaseDate(dto.purchaseDate())
                 .totalAmount(dto.totalAmount())
                 .amountPaid(dto.amountPaid())
