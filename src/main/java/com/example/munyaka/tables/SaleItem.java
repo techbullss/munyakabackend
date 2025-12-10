@@ -25,7 +25,7 @@ public class SaleItem {
 
     private Item product;
     private double discountAmount;
-    private Integer quantity;
+    private double quantity;
     private Double total;
      private double profit;
      private String notes;

@@ -38,7 +38,7 @@ public class SaleService {
                 );
             }
 
-            int originalQty = saleItem.getQuantity();
+            double originalQty = saleItem.getQuantity();
             int returnQty = returnItem.getQuantity();
             Item product = saleItem.getProduct();
 
@@ -47,7 +47,7 @@ public class SaleService {
             double unitProfit = unitSellingPrice - unitCostPrice;
 
             // Apply return - reduce quantity sold
-            int newQty = originalQty - returnQty;
+            double newQty = originalQty - returnQty;
             saleItem.setQuantity(newQty);
 
             // Calculate new totals for this item

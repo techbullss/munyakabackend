@@ -49,7 +49,14 @@ public class ItemServiceImpl implements ItemService {
 
     @Override
     public ItemResponseDTO createItem(ItemRequestDTO itemRequestDTO) {
+        boolean exists = itemRepository.existsByItemNameIgnoreCaseAndSellingUnit(
+                itemRequestDTO.getItemName(),
+                itemRequestDTO.getSellingUnit()
+        );
 
+        if (exists) {
+            throw new RuntimeException("Item already exists with the same name and selling unit");
+        }
         validateVariants(itemRequestDTO);
 
         Item item = convertToEntity(itemRequestDTO);
@@ -58,11 +65,11 @@ public class ItemServiceImpl implements ItemService {
     }
     @Override
     @Transactional
-    public void updateItemStock(Long id, Integer stockQuantity) {
+    public void updateItemStock(Long id, double stockQuantity) {
         Item item = itemRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Item not found with id: " + id));
 
-        item.setStockQuantity(stockQuantity);
+        item.setStockQuantity(Double.valueOf(stockQuantity));
         itemRepository.save(item);
     }
     @Override

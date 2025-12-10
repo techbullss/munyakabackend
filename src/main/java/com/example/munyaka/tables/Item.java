@@ -26,7 +26,7 @@ public class Item {
     @Column(length = 1000)
     private String description;
     private Double price;
-    private Integer stockQuantity;
+    private Double stockQuantity;
     private Double sellingPrice;
     private String supplier;
     @Enumerated(EnumType.STRING)

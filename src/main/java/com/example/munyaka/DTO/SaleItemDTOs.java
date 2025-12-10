@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 public class SaleItemDTOs {
     private Long id;
     private String productName;
-    private Integer quantity;
+    private double quantity;
     private Double unitPrice;
     private Double totalPrice;
 }

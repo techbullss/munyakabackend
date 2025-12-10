@@ -10,11 +10,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,22 +25,29 @@ import java.util.stream.Collectors;
 @CrossOrigin(origins = "http://localhost:3000/")
 public class SaleController {
     private final SaleRepository repo;
-@Autowired
-private ItemRepository itemRepository;
-@Autowired
+
+    @Autowired
+    private ItemRepository itemRepository;
+
+    @Autowired
     private SaleRepository saleRepository;
-@Autowired
-private SaleService saleService;
+
+    @Autowired
+    private SaleService saleService;
+
+    // CREATE SALE
     @PostMapping
     public SaleReceiptResponse createSale(@RequestBody SaleRequest request) {
         Sale sale = new Sale();
         sale.setCustomerName(request.getCustomerName());
-        sale.setSaleDate(LocalDate.parse(LocalDate.now().toString()));
+        sale.setSaleDate(LocalDate.now());
         sale.setTotalAmount(request.getTotalAmount());
         sale.setBalanceDue(request.getChangeAmount());
         sale.setPaidAmount(request.getAmountPaid());
         sale.setPaymentMethod(request.getPaymentMethod());
         sale.setCustomerPhone(request.getCustomerPhone());
+        sale.setIsDeleted(false);
+        sale.setDeletedAt(null);
 
         List<SaleItem> saleItems = new ArrayList<>();
         double total = 0.0;
@@ -60,7 +68,7 @@ private SaleService saleService;
 
             total += product.getSellingPrice() * reqItem.getQuantity();
 
-            // ✅ Profit calculation per item
+            // Profit calculation per item
             double profit = (product.getSellingPrice() - product.getPrice() - reqItem.getDiscountAmount())
                     * reqItem.getQuantity();
             totalProfit += profit;
@@ -78,21 +86,21 @@ private SaleService saleService;
         sale.setItems(saleItems);
         sale.setProfit(totalProfit);
 
-        //  Determine payment status
+        // Determine payment status
         double totalAmount = request.getTotalAmount();
         double paidAmount = request.getAmountPaid();
 
-
-// Status logic
+        // Status logic
         if (paidAmount == 0) {
-            sale.setPaymentStatus("PENDING");   // no payment made
+            sale.setPaymentStatus("PENDING");
         } else if (paidAmount < totalAmount) {
-            sale.setPaymentStatus("PARTIAL");   // some paid, but not full
+            sale.setPaymentStatus("PARTIAL");
         } else if (paidAmount == totalAmount) {
-            sale.setPaymentStatus("PAID");      // fully paid
+            sale.setPaymentStatus("PAID");
         } else {
-            sale.setPaymentStatus("OVERPAID");  // paid more than required
+            sale.setPaymentStatus("OVERPAID");
         }
+
         saleRepository.save(sale);
 
         // Build receipt response
@@ -109,176 +117,592 @@ private SaleService saleService;
         return response;
     }
 
+    // UPDATE SALE WITH ITEMS - COMPLETE EDIT FUNCTIONALITY
+    @PutMapping("/{id}/edit")
+    @Transactional
+    public ResponseEntity<?> editSaleWithItems(
+            @PathVariable Long id,
+            @RequestBody SaleEditRequest request) {
+
+        try {
+            Optional<Sale> saleOpt = saleRepository.findActiveById(id);
+
+            if (saleOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found or has been deleted"
+                        ));
+            }
+
+            Sale existingSale = saleOpt.get();
+
+            // Update basic customer info
+            if (request.getCustomerName() != null) {
+                existingSale.setCustomerName(request.getCustomerName());
+            }
+            if (request.getCustomerPhone() != null) {
+                existingSale.setCustomerPhone(request.getCustomerPhone());
+            }
+            if (request.getPaymentMethod() != null) {
+                existingSale.setPaymentMethod(request.getPaymentMethod());
+            }
+            if (request.getSaleDate() != null) {
+                existingSale.setSaleDate(LocalDate.parse(request.getSaleDate()));
+            }
+
+            // Update sale items if provided
+            if (request.getItems() != null && !request.getItems().isEmpty()) {
+                // Clear existing items first
+                existingSale.getItems().clear();
+
+                double newTotal = 0.0;
+                double newProfit = 0.0;
+
+                // Add new/updated items
+                for (SaleItemRequest itemRequest : request.getItems()) {
+                    Item product = itemRepository.findById(itemRequest.getProductId())
+                            .orElseThrow(() -> new RuntimeException(
+                                    "Product not found: " + itemRequest.getProductId()));
+
+                    SaleItem saleItem = new SaleItem();
+                    saleItem.setSale(existingSale);
+                    saleItem.setProduct(product);
+                    saleItem.setQuantity(itemRequest.getQuantity());
+                    saleItem.setTotal(itemRequest.getTotal());
+
+                    // FIXED: Using != (not equals) operator
+                    saleItem.setDiscountAmount(itemRequest.getDiscountAmount() != null ?
+                            itemRequest.getDiscountAmount() : 0.0);
+
+                    existingSale.getItems().add(saleItem);
+
+                    // Calculate new totals
+                    newTotal += itemRequest.getTotal();
+
+                    // Calculate profit for this item
+                    double discountAmount = itemRequest.getDiscountAmount() != null ?
+                            itemRequest.getDiscountAmount() : 0.0;
+                    double profit = (product.getSellingPrice() - product.getPrice() - discountAmount)
+                            * itemRequest.getQuantity();
+                    newProfit += profit;
+                }
+
+                existingSale.setTotalAmount(newTotal);
+                existingSale.setProfit(newProfit);
+            }
+
+            // Update payment information if provided
+            if (request.getPaidAmount() != null) {
+                double totalAmount = existingSale.getTotalAmount() != null ?
+                        existingSale.getTotalAmount() : 0.0;
+                double paidAmount = request.getPaidAmount();
+                double balance = totalAmount - paidAmount;
+
+                existingSale.setPaidAmount(paidAmount);
+                existingSale.setBalanceDue(balance);
+
+                // Update payment status based on new payment
+                if (paidAmount == 0) {
+                    existingSale.setPaymentStatus("PENDING");
+                } else if (paidAmount < totalAmount) {
+                    existingSale.setPaymentStatus("PARTIAL");
+                } else if (paidAmount == totalAmount) {
+                    existingSale.setPaymentStatus("PAID");
+                } else {
+                    existingSale.setPaymentStatus("OVERPAID");
+                }
+            }
+
+            // Save the updated sale
+            Sale savedSale = saleRepository.save(existingSale);
+
+            // Build response
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Sale updated successfully");
+            response.put("id", savedSale.getId());
+            response.put("totalAmount", savedSale.getTotalAmount());
+            response.put("profit", savedSale.getProfit());
+            response.put("paidAmount", savedSale.getPaidAmount());
+            response.put("balanceDue", savedSale.getBalanceDue());
+            response.put("paymentStatus", savedSale.getPaymentStatus());
+            response.put("itemsCount", savedSale.getItems().size());
+
+            return ResponseEntity.ok(response);
+
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of(
+                            "success", false,
+                            "message", e.getMessage()
+                    ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to update sale: " + e.getMessage()
+                    ));
+        }
+    }
+    // UPDATE BASIC SALE INFO (without items)
     @PutMapping("/{id}")
+    @Transactional
     public ResponseEntity<?> updateSale(
             @PathVariable Long id,
-            @RequestBody Sale updatedSale
-    ) {
-        return saleRepository.findById(id).map(existingSale -> {
-            // update fields
-            existingSale.setCustomerName(updatedSale.getCustomerName());
-            existingSale.setCustomerPhone(updatedSale.getCustomerPhone());
-            existingSale.setSaleDate(updatedSale.getSaleDate());
-            existingSale.setPaymentMethod(updatedSale.getPaymentMethod());
-            existingSale.setPaidAmount(updatedSale.getPaidAmount());
+            @RequestBody SaleUpdateRequest request) {
 
-            // recalc totals
-            double totalAmount = existingSale.getItems().stream()
-                    .mapToDouble(SaleItem::getTotal)
-                    .sum();
+        try {
+            Optional<Sale> saleOpt = saleRepository.findActiveById(id);
 
-            double balance = totalAmount - updatedSale.getPaidAmount();
-            existingSale.setTotalAmount(totalAmount);
-            existingSale.setBalanceDue(balance);
+            if (saleOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found or has been deleted"
+                        ));
+            }
 
-            if (updatedSale.getPaidAmount() >= totalAmount) {
-                existingSale.setPaymentStatus(updatedSale.getPaidAmount() > totalAmount ? "OVERPAID" : "PAID");
-            } else if (updatedSale.getPaidAmount() > 0) {
-                existingSale.setPaymentStatus("PARTIAL");
-            } else {
-                existingSale.setPaymentStatus("PENDING");
+            Sale existingSale = saleOpt.get();
+
+            // Update only allowed fields
+            if (request.getCustomerName() != null) {
+                existingSale.setCustomerName(request.getCustomerName());
+            }
+            if (request.getCustomerPhone() != null) {
+                existingSale.setCustomerPhone(request.getCustomerPhone());
+            }
+            if (request.getPaymentMethod() != null) {
+                existingSale.setPaymentMethod(request.getPaymentMethod());
+            }
+            if (request.getSaleDate() != null) {
+                existingSale.setSaleDate(LocalDate.parse(request.getSaleDate()));
+            }
+            if (request.getPaidAmount() != null) {
+                double totalAmount = existingSale.getTotalAmount() != null ?
+                        existingSale.getTotalAmount() : 0.0;
+                double paidAmount = request.getPaidAmount();
+                double balance = totalAmount - paidAmount;
+
+                existingSale.setPaidAmount(paidAmount);
+                existingSale.setBalanceDue(balance);
+
+                // Update payment status
+                if (paidAmount == 0) {
+                    existingSale.setPaymentStatus("PENDING");
+                } else if (paidAmount < totalAmount) {
+                    existingSale.setPaymentStatus("PARTIAL");
+                } else if (paidAmount == totalAmount) {
+                    existingSale.setPaymentStatus("PAID");
+                } else {
+                    existingSale.setPaymentStatus("OVERPAID");
+                }
             }
 
             Sale savedSale = saleRepository.save(existingSale);
+
             Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Sale updated successfully");
             response.put("id", savedSale.getId());
-            response.put("status", savedSale.getPaymentStatus());
-            response.put("totalAmount", savedSale.getTotalAmount());
+            response.put("customerName", savedSale.getCustomerName());
+            response.put("customerPhone", savedSale.getCustomerPhone());
+            response.put("paymentMethod", savedSale.getPaymentMethod());
+            response.put("paidAmount", savedSale.getPaidAmount());
             response.put("balanceDue", savedSale.getBalanceDue());
-            // ✅ No JSON returned, just 204
+            response.put("paymentStatus", savedSale.getPaymentStatus());
+
             return ResponseEntity.ok(response);
-        }).orElse(ResponseEntity.notFound().build()); // <- fix
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to update sale: " + e.getMessage()
+                    ));
+        }
     }
 
-
-
+    // GET SALE BY ID
     @GetMapping("/{id}")
-    public SaleSummaryDTO getSale(@PathVariable Long id) {
-        Sale sale = repo.findById(id).orElseThrow();
-        return new SaleSummaryDTO(sale);
+    public ResponseEntity<?> getSale(@PathVariable Long id) {
+        try {
+            Optional<Sale> saleOpt = saleRepository.findActiveById(id);
+
+            if (saleOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found or has been deleted"
+                        ));
+            }
+
+            Sale sale = saleOpt.get();
+            return ResponseEntity.ok(new SaleSummaryDTO(sale));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to fetch sale: " + e.getMessage()
+                    ));
+        }
     }
+
+    // GET SALES BY PERIOD WITH FILTER
     @GetMapping("/filter")
-    public Map<String, Object> getSalesByPeriod(
+    public ResponseEntity<?> getSalesByPeriod(
             @RequestParam String start,
             @RequestParam String end,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "saleDate,desc") String sort) {
 
-        LocalDate startDate = LocalDate.parse(start );
-        String endDate = end ;
+        try {
+            LocalDate startDate = LocalDate.parse(start);
+            LocalDate endDate = LocalDate.parse(end);
 
-        // Parse sort param
-        String[] sortParams = sort.split(",");
-        String sortField = sortParams[0];
-        Sort.Direction direction = (sortParams.length > 1 && sortParams[1].equalsIgnoreCase("asc"))
-                ? Sort.Direction.ASC
-                : Sort.Direction.DESC;
+            // Parse sort param
+            String[] sortParams = sort.split(",");
+            String sortField = sortParams[0];
+            Sort.Direction direction = (sortParams.length > 1 && sortParams[1].equalsIgnoreCase("asc"))
+                    ? Sort.Direction.ASC
+                    : Sort.Direction.DESC;
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortField));
+            Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortField));
 
-        // Fetch paginated sales (for table display)
-        Page<Sale> salesPage = saleRepository.findBySaleDateBetween(startDate, LocalDate.parse(endDate), pageable);
-        List<SaleSummaryDTO> saleDTOs = salesPage.getContent()
-                .stream()
-                .map(SaleSummaryDTO::new)  // ✅ DTO must copy sale.getProfit()
-                .toList();
+            // Fetch paginated sales (for table display) - ACTIVE ONLY
+            Page<Sale> salesPage = saleRepository.findActiveBySaleDateBetween(startDate, endDate, pageable);
+            List<SaleSummaryDTO> saleDTOs = salesPage.getContent()
+                    .stream()
+                    .map(SaleSummaryDTO::new)
+                    .collect(Collectors.toList());
 
-        // Fetch all sales (for summary calculations, not paginated)
-        List<Sale> allSales = saleRepository.findBySaleDateBetween(startDate, LocalDate.parse(endDate));
-        List<SaleSummaryDTO> allSaleDTOs = allSales.stream()
-                .map(SaleSummaryDTO::new)
-                .toList();
+            // Fetch all sales (for summary calculations, not paginated) - ACTIVE ONLY
+            List<Sale> allSales = saleRepository.findAllActiveBySaleDateBetween(startDate, endDate);
+            List<SaleSummaryDTO> allSaleDTOs = allSales.stream()
+                    .map(SaleSummaryDTO::new)
+                    .collect(Collectors.toList());
 
-        // Summary calculations
-        double totalAmount = allSaleDTOs.stream()
-                .mapToDouble(SaleSummaryDTO::getTotalAmount)
-                .sum();
-        int totalSales = allSaleDTOs.size();
-        double avgSale = totalSales > 0 ? totalAmount / totalSales : 0;
-        int totalItems = allSaleDTOs.stream()
-                .mapToInt(s -> s.getItems().size())
-                .sum();
-        double totalProfit = allSaleDTOs.stream()
-                .mapToDouble(SaleSummaryDTO::getProfit)  // ✅ add this
-                .sum();
+            // Summary calculations
+            double totalAmount = allSaleDTOs.stream()
+                    .mapToDouble(SaleSummaryDTO::getTotalAmount)
+                    .sum();
+            int totalSales = allSaleDTOs.size();
+            double avgSale = totalSales > 0 ? totalAmount / totalSales : 0;
+            int totalItems = allSaleDTOs.stream()
+                    .mapToInt(s -> s.getItems().size())
+                    .sum();
+            double totalProfit = allSaleDTOs.stream()
+                    .mapToDouble(SaleSummaryDTO::getProfit)
+                    .sum();
 
-        // Previous period deviation
-        long daysBetween = java.time.Duration.between(
-                java.time.LocalDate.parse(start).atStartOfDay(),
-                java.time.LocalDate.parse(end).atStartOfDay()
-        ).toDays() + 1;
+            // Previous period deviation
+            long daysBetween = java.time.Duration.between(
+                    startDate.atStartOfDay(),
+                    endDate.atStartOfDay()
+            ).toDays() + 1;
 
-        LocalDate prevStart = startDate.minusDays(daysBetween);
-        String prevEnd = String.valueOf(LocalDate.parse(start).minusDays(1));
+            LocalDate prevStart = startDate.minusDays(daysBetween);
+            LocalDate prevEnd = startDate.minusDays(1);
 
-        double prevAmount = saleRepository.findBySaleDateBetween(prevStart, LocalDate.parse(prevEnd))
-                .stream()
-                .mapToDouble(s -> s.getTotalAmount() != null ? s.getTotalAmount() : 0.0)
-                .sum();
+            double prevAmount = saleRepository.findAllActiveBySaleDateBetween(prevStart, prevEnd)
+                    .stream()
+                    .mapToDouble(s -> s.getTotalAmount() != null ? s.getTotalAmount() : 0.0)
+                    .sum();
 
-        double deviation = prevAmount == 0
-                ? 100
-                : ((totalAmount - prevAmount) / prevAmount) * 100;
+            double deviation = prevAmount == 0
+                    ? 100
+                    : ((totalAmount - prevAmount) / prevAmount) * 100;
 
-        // Build response
-        Map<String, Object> response = new HashMap<>();
-        response.put("sales", saleDTOs); //  only current page
-        response.put("summary", Map.of(
-                "totalSales", totalSales,
-                "totalAmount", totalAmount,
-                "totalProfit", totalProfit,   //  include profit in summary
-                "averageSale", avgSale,
-                "totalItems", totalItems,
-                "deviation", deviation
-        ));
-        response.put("page", salesPage.getNumber());
-        response.put("size", salesPage.getSize());
-        response.put("totalElements", salesPage.getTotalElements());
-        response.put("totalPages", salesPage.getTotalPages());
+            // Build response
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("sales", saleDTOs);
+            response.put("summary", Map.of(
+                    "totalSales", totalSales,
+                    "totalAmount", totalAmount,
+                    "totalProfit", totalProfit,
+                    "averageSale", avgSale,
+                    "totalItems", totalItems,
+                    "deviation", deviation
+            ));
+            response.put("page", salesPage.getNumber());
+            response.put("size", salesPage.getSize());
+            response.put("totalElements", salesPage.getTotalElements());
+            response.put("totalPages", salesPage.getTotalPages());
 
-        return response;
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to fetch sales: " + e.getMessage()
+                    ));
+        }
     }
 
-
+    // GET ALL SALES WITH PAGINATION
     @GetMapping
-    public Map<String, Object> getSalesPage(
+    public ResponseEntity<?> getSalesPage(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "saleDate") String sortBy,
             @RequestParam(defaultValue = "desc") String direction) {
 
-        Sort sort = direction.equalsIgnoreCase("asc")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
-
-        Pageable pageable = PageRequest.of(page, size, sort);
-        Page<Sale> salePage = saleRepository.findAll(pageable);
-
-
-        double totalProfit = salePage.getContent()
-                .stream()
-                .mapToDouble(Sale::getProfit)
-                .sum();
-
-        List<SaleSummaryDTO> sales = salePage.getContent()
-                .stream()
-                .map(SaleSummaryDTO::new)
-                .toList();
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("sales", sales);
-        response.put("currentPage", salePage.getNumber());
-        response.put("totalItems", salePage.getTotalElements());
-        response.put("totalPages", salePage.getTotalPages());
-        response.put("totalProfit", totalProfit);
-
-        return response;
-    }
-    @GetMapping("/debtors")
-    public ResponseEntity<List<DebtorDTO>> getDebtors() {
         try {
-            List<Sale> pendingSales = saleRepository.findByBalanceDueGreaterThan(0.0);
+            Sort sort = direction.equalsIgnoreCase("asc")
+                    ? Sort.by(sortBy).ascending()
+                    : Sort.by(sortBy).descending();
+
+            Pageable pageable = PageRequest.of(page, size, sort);
+            Page<Sale> salePage = saleRepository.findAllActive(pageable);
+
+            double totalProfit = salePage.getContent()
+                    .stream()
+                    .mapToDouble(Sale::getProfit)
+                    .sum();
+
+            List<SaleSummaryDTO> sales = salePage.getContent()
+                    .stream()
+                    .map(SaleSummaryDTO::new)
+                    .collect(Collectors.toList());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("sales", sales);
+            response.put("currentPage", salePage.getNumber());
+            response.put("totalItems", salePage.getTotalElements());
+            response.put("totalPages", salePage.getTotalPages());
+            response.put("totalProfit", totalProfit);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to fetch sales: " + e.getMessage()
+                    ));
+        }
+    }
+
+    // SOFT DELETE: Mark sale as deleted
+    @DeleteMapping("/{id}")
+    @Transactional
+    public ResponseEntity<?> softDeleteSale(@PathVariable Long id) {
+        try {
+            // Find the sale first
+            Optional<Sale> saleOpt = saleRepository.findActiveById(id);
+
+            if (saleOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found or already deleted",
+                                "id", id
+                        ));
+            }
+
+            Sale sale = saleOpt.get();
+            sale.setIsDeleted(true);
+            sale.setDeletedAt(LocalDate.now());
+            saleRepository.save(sale);
+
+            return ResponseEntity.ok().body(Map.of(
+                    "success", true,
+                    "message", "Sale soft deleted successfully",
+                    "id", id,
+                    "deletedAt", sale.getDeletedAt()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to delete sale: " + e.getMessage()
+                    ));
+        }
+    }
+
+    // BULK SOFT DELETE
+    @DeleteMapping("/bulk")
+    @Transactional
+    public ResponseEntity<?> softDeleteSales(@RequestBody List<Long> saleIds) {
+        try {
+            // Verify all sales exist and are active
+            List<Sale> sales = saleRepository.findAllById(saleIds);
+            List<Long> activeSaleIds = sales.stream()
+                    .filter(sale -> !sale.getIsDeleted())
+                    .map(Sale::getId)
+                    .collect(Collectors.toList());
+
+            if (activeSaleIds.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of(
+                                "success", false,
+                                "message", "No active sales found to delete"
+                        ));
+            }
+
+            // Soft delete all
+            for (Long id : activeSaleIds) {
+                saleRepository.softDelete(id);
+            }
+
+            return ResponseEntity.ok().body(Map.of(
+                    "success", true,
+                    "message", activeSaleIds.size() + " sales soft deleted successfully",
+                    "deletedIds", activeSaleIds,
+                    "skippedIds", saleIds.stream()
+                            .filter(id -> !activeSaleIds.contains(id))
+                            .collect(Collectors.toList())
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to delete sales: " + e.getMessage()
+                    ));
+        }
+    }
+
+    // RESTORE deleted sale
+    @PostMapping("/{id}/restore")
+    @Transactional
+    public ResponseEntity<?> restoreSale(@PathVariable Long id) {
+        try {
+            Optional<Sale> saleOpt = saleRepository.findById(id);
+
+            if (saleOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found",
+                                "id", id
+                        ));
+            }
+
+            Sale sale = saleOpt.get();
+
+            if (!sale.getIsDeleted()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale is not deleted",
+                                "id", id
+                        ));
+            }
+
+            sale.setIsDeleted(false);
+            sale.setDeletedAt(null);
+            saleRepository.save(sale);
+
+            return ResponseEntity.ok().body(Map.of(
+                    "success", true,
+                    "message", "Sale restored successfully",
+                    "id", id
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to restore sale: " + e.getMessage()
+                    ));
+        }
+    }
+
+    // GET deleted sales (for admin/recovery)
+    @GetMapping("/deleted")
+    public ResponseEntity<?> getDeletedSales(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        try {
+            Pageable pageable = PageRequest.of(page, size, Sort.by("deletedAt").descending());
+            Page<Sale> deletedSalesPage = saleRepository.findAllDeleted(pageable);
+
+            List<SaleSummaryDTO> deletedSales = deletedSalesPage.getContent()
+                    .stream()
+                    .map(sale -> {
+                        SaleSummaryDTO dto = new SaleSummaryDTO(sale);
+                        dto.setDeletedAt(sale.getDeletedAt());
+                        return dto;
+                    })
+                    .collect(Collectors.toList());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("deletedSales", deletedSales);
+            response.put("currentPage", deletedSalesPage.getNumber());
+            response.put("totalItems", deletedSalesPage.getTotalElements());
+            response.put("totalPages", deletedSalesPage.getTotalPages());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to fetch deleted sales: " + e.getMessage()
+                    ));
+        }
+    }
+
+    // PERMANENT DELETE (Admin only - optional)
+    @DeleteMapping("/{id}/permanent")
+    @Transactional
+    public ResponseEntity<?> permanentDeleteSale(@PathVariable Long id) {
+        try {
+            Optional<Sale> saleOpt = saleRepository.findById(id);
+
+            if (saleOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found",
+                                "id", id
+                        ));
+            }
+
+            Sale sale = saleOpt.get();
+
+            // Only allow permanent delete if soft deleted for 30+ days
+            if (sale.getDeletedAt() != null &&
+                    sale.getDeletedAt().plusDays(30).isBefore(LocalDate.now())) {
+
+                saleRepository.deleteById(id);
+
+                return ResponseEntity.ok().body(Map.of(
+                        "success", true,
+                        "message", "Sale permanently deleted",
+                        "id", id,
+                        "note", "Sale was soft deleted on " + sale.getDeletedAt()
+                ));
+            } else if (sale.getIsDeleted()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale must be soft deleted for at least 30 days before permanent deletion",
+                                "deletedAt", sale.getDeletedAt()
+                        ));
+            } else {
+                return ResponseEntity.badRequest()
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale must be soft deleted first",
+                                "isDeleted", sale.getIsDeleted()
+                        ));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to permanently delete sale: " + e.getMessage()
+                    ));
+        }
+    }
+
+    // DEBTORS
+    @GetMapping("/debtors")
+    public ResponseEntity<?> getDebtors() {
+        try {
+            List<Sale> pendingSales = saleRepository.findActivePendingSales();
             Map<String, DebtorDTO> debtorMap = new HashMap<>();
 
             for (Sale sale : pendingSales) {
@@ -309,42 +733,61 @@ private SaleService saleService;
 
             return ResponseEntity.ok(new ArrayList<>(debtorMap.values()));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to fetch debtors: " + e.getMessage()
+                    ));
         }
     }
 
-    // Get pending sales
+    // GET PENDING SALES
     @GetMapping("/pending")
-    public ResponseEntity<List<SaleDTO>> getPendingSales() {
+    public ResponseEntity<?> getPendingSales() {
         try {
-            List<Sale> pendingSales = saleRepository.findByBalanceDueGreaterThan(0.0);
+            List<Sale> pendingSales = saleRepository.findActivePendingSales();
             List<SaleDTO> saleDTOs = pendingSales.stream()
                     .map(this::convertToSaleDTO)
                     .collect(Collectors.toList());
             return ResponseEntity.ok(saleDTOs);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to fetch pending sales: " + e.getMessage()
+                    ));
         }
     }
 
-    // Record payment for a specific sale
+    // RECORD PAYMENT
     @PostMapping("/payment/{id}")
-    public ResponseEntity<SaleDTO> recordPayment(
+    public ResponseEntity<?> recordPayment(
             @PathVariable Long id,
             @RequestBody PaymentRequest paymentRequest) {
+
         System.out.println("Received payment for sale ID: " + id +
                 ", Amount: " + paymentRequest.getPaymentAmount());
+
         try {
-            Optional<Sale> saleOpt = saleRepository.findById(id);
+            Optional<Sale> saleOpt = saleRepository.findActiveById(id);
+
             if (saleOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found or has been deleted"
+                        ));
             }
 
             Sale sale = saleOpt.get();
             Double paymentAmount = paymentRequest.getPaymentAmount();
 
             if (paymentAmount <= 0) {
-                return ResponseEntity.badRequest().build();
+                return ResponseEntity.badRequest()
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Payment amount must be greater than zero"
+                        ));
             }
 
             // Update paid amount and balance due
@@ -365,18 +808,26 @@ private SaleService saleService;
             Sale updatedSale = saleRepository.save(sale);
             return ResponseEntity.ok(convertToSaleDTO(updatedSale));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to record payment: " + e.getMessage()
+                    ));
         }
     }
 
-    // Get debtor by phone number
+    // GET DEBTOR BY PHONE
     @GetMapping("/debtors/{phone}")
-    public ResponseEntity<DebtorDTO> getDebtorByPhone(@PathVariable String phone) {
+    public ResponseEntity<?> getDebtorByPhone(@PathVariable String phone) {
         try {
-            List<Sale> customerSales = saleRepository.findByCustomerPhoneAndBalanceDueGreaterThan(phone, 0.0);
+            List<Sale> customerSales = saleRepository.findActiveByCustomerPhoneAndBalanceDueGreaterThan(phone, 0.0);
 
             if (customerSales.isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "No active debts found for this customer"
+                        ));
             }
 
             DebtorDTO debtor = DebtorDTO.builder()
@@ -391,10 +842,47 @@ private SaleService saleService;
 
             return ResponseEntity.ok(debtor);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to fetch debtor: " + e.getMessage()
+                    ));
         }
     }
 
+    // RETURN ITEMS
+    @PostMapping("/{saleId}/return")
+    public ResponseEntity<?> returnSaleItems(
+            @PathVariable Long saleId,
+            @RequestBody ReturnRequest request) {
+
+        try {
+            Optional<Sale> saleOpt = saleRepository.findActiveById(saleId);
+
+            if (saleOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of(
+                                "success", false,
+                                "message", "Sale not found or has been deleted"
+                        ));
+            }
+
+            saleService.processReturn(saleId, request.getItems());
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Return processed successfully"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Failed to process return: " + e.getMessage()
+                    ));
+        }
+    }
+
+    // HELPER METHODS
     private SaleDTO convertToSaleDTO(Sale sale) {
         return SaleDTO.builder()
                 .id(sale.getId())
@@ -408,6 +896,8 @@ private SaleService saleService;
                 .paymentMethod(sale.getPaymentMethod())
                 .profit(sale.getProfit())
                 .paymentStatus(sale.getPaymentStatus())
+                .isDeleted(sale.getIsDeleted())
+                .deletedAt(sale.getDeletedAt())
                 .items(sale.getItems().stream().map(this::convertToSaleItemDTO).collect(Collectors.toList()))
                 .build();
     }
@@ -421,6 +911,7 @@ private SaleService saleService;
                 .totalPrice(item.getTotal())
                 .build();
     }
+
     private String calculatePaymentStatus(String saleDate) {
         try {
             LocalDate saleLocalDate = LocalDate.parse(saleDate);
@@ -444,13 +935,5 @@ private SaleService saleService;
         } catch (Exception e) {
             return false;
         }
-    }
-    @PostMapping("/{saleId}/return")
-    public ResponseEntity<?> returnSaleItems(
-            @PathVariable Long saleId,
-            @RequestBody ReturnRequest request) {
-
-        saleService.processReturn(saleId, request.getItems());
-        return ResponseEntity.ok("Return processed successfully");
     }
 }

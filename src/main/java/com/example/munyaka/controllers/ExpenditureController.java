@@ -23,11 +23,9 @@ public class ExpenditureController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "5") int size,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+            @RequestParam(required = false) String search
     ) {
-        Page<Expenditure> expenditures = expenditureService.getExpenditures(page, size, category, search, startDate, endDate);
+        Page<Expenditure> expenditures = expenditureService.getExpenditures(page, size, category, search);
         return ResponseEntity.ok(expenditures);
     }
 

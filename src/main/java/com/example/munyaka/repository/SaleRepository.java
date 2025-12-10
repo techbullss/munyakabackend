@@ -5,15 +5,20 @@ import com.example.munyaka.tables.Sale;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+@Repository
 public interface SaleRepository extends JpaRepository<Sale, Long> {
+
+    // ========== EXISTING QUERIES ==========
     @Query("SELECT s FROM Sale s WHERE s.saleDate BETWEEN :start AND :end")
     List<Sale> findBySaleDateBetween(@Param("start") LocalDate start, @Param("end") LocalDate end);
 
@@ -32,10 +37,10 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
     List<Sale> findByCustomerPhoneAndBalanceDueGreaterThan(String customerPhone, Double balanceDue);
 
     // Find distinct customers with pending payments
-    @Query("SELECT DISTINCT s.customerPhone FROM Sale s WHERE s.balanceDue <0")
+    @Query("SELECT DISTINCT s.customerPhone FROM Sale s WHERE s.balanceDue < 0")
     List<String> findCustomersWithPendingPayments();
-    List<Sale> findByPaymentStatus(String paymentStatus);
 
+    List<Sale> findByPaymentStatus(String paymentStatus);
 
     // Get total sales amount
     @Query("SELECT SUM(s.totalAmount) FROM Sale s")
@@ -47,8 +52,10 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
 
     // Find recent sales
     List<Sale> findTop10ByOrderBySaleDateDesc();
+
     @Query("SELECT SUM(s.balanceDue) FROM Sale s WHERE s.paymentStatus = 'Pending'")
     Double getTotalDebtAmount();
+
     @Query("""
     SELECT new com.example.munyaka.DTO.TopProduct(
         si.product.itemName,
@@ -60,6 +67,60 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
     ORDER BY SUM(si.quantity) DESC
 """)
     List<TopProduct> findTopSellingProducts();
+
     @Query("SELECT DISTINCT s FROM Sale s LEFT JOIN FETCH s.items i LEFT JOIN FETCH i.product WHERE s.id = :id")
     Optional<Sale> findByIdWithItems(@Param("id") Long id);
+
+    // ========== NEW SOFT DELETE QUERIES ==========
+
+    // Soft delete: find only non-deleted sales
+    @Query("SELECT s FROM Sale s WHERE s.isDeleted = false")
+    Page<Sale> findAllActive(Pageable pageable);
+
+    @Query("SELECT s FROM Sale s WHERE s.isDeleted = false AND s.id = :id")
+    Optional<Sale> findActiveById(@Param("id") Long id);
+
+    @Query("SELECT s FROM Sale s WHERE s.isDeleted = false AND s.saleDate BETWEEN :start AND :end")
+    Page<Sale> findActiveBySaleDateBetween(
+            @Param("start") LocalDate start,
+            @Param("end") LocalDate end,
+            Pageable pageable);
+
+    @Query("SELECT s FROM Sale s WHERE s.isDeleted = false AND s.saleDate BETWEEN :start AND :end")
+    List<Sale> findAllActiveBySaleDateBetween(
+            @Param("start") LocalDate start,
+            @Param("end") LocalDate end);
+
+    // Find deleted sales (for admin/recovery)
+    @Query("SELECT s FROM Sale s WHERE s.isDeleted = true")
+    Page<Sale> findAllDeleted(Pageable pageable);
+
+    // Soft delete method
+    @Modifying
+    @Transactional
+    @Query("UPDATE Sale s SET s.isDeleted = true, s.deletedAt = CURRENT_DATE WHERE s.id = :id")
+    void softDelete(@Param("id") Long id);
+
+    // Restore method
+    @Modifying
+    @Transactional
+    @Query("UPDATE Sale s SET s.isDeleted = false, s.deletedAt = null WHERE s.id = :id")
+    void restore(@Param("id") Long id);
+
+    // Bulk soft delete
+    @Modifying
+    @Transactional
+    @Query("UPDATE Sale s SET s.isDeleted = true, s.deletedAt = CURRENT_DATE WHERE s.id IN :ids")
+    void softDeleteAllById(@Param("ids") List<Long> ids);
+
+    // Find pending/debtor sales that are not deleted
+    @Query("SELECT s FROM Sale s WHERE s.isDeleted = false AND s.balanceDue > 0")
+    List<Sale> findActivePendingSales();
+
+    @Query("SELECT s FROM Sale s WHERE s.isDeleted = false AND s.customerPhone = :phone AND s.balanceDue > 0")
+    List<Sale> findActiveByCustomerPhoneAndBalanceDueGreaterThan(
+            @Param("phone") String phone,
+            @Param("balance") Double balance);
+
+
 }

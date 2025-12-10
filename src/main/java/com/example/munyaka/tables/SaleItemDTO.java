@@ -10,7 +10,7 @@ import lombok.Setter;
 public class SaleItemDTO {
     private Long productId;
     private String productName;
-    private int quantity;
+    private double quantity;
     private double unitPrice;
     private double lineTotal;
     private double discount;

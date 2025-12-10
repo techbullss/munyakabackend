@@ -26,6 +26,11 @@ public class Sale {
     private Double balanceDue;
     private String paymentMethod;
     private  double profit;
+    @Column(name = "is_deleted", nullable = true)  // Allow null
+    private Boolean isDeleted;
+
+    @Column(name = "deleted_at", nullable = true)  // Allow null
+    private LocalDate deletedAt;
     private String paymentStatus;
     @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
 

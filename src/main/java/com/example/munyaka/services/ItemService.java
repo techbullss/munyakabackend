@@ -6,7 +6,7 @@ import org.springframework.data.domain.Page;
 import java.util.List;
 
 public interface ItemService {
-    void updateItemStock(Long id, Integer stockQuantity);
+    void updateItemStock(Long id, double stockQuantity);
     ItemResponseDTO createItem(ItemRequestDTO itemRequestDTO);
     ItemResponseDTO getItemById(Long id);
     Page<ItemResponseDTO> getAllItems(int page, int size);

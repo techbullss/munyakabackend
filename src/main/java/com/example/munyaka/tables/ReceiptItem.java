@@ -9,7 +9,7 @@ import lombok.Setter;
 @Setter
 public  class ReceiptItem {
     private String productName;
-    private int quantity;
+    private double quantity;
     private double unitPrice;
     private double lineTotal;
     private String paymentMethod;

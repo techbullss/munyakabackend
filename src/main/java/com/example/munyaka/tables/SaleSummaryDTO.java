@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.util.List;
 @Data
 @Setter
@@ -19,6 +20,8 @@ public class SaleSummaryDTO {
     private double paidAmount;
     private String paymentStatus;
     private String customerPhone;
+    private Boolean isDeleted;
+    private LocalDate deletedAt;
     private List<SaleItemDTO> items;
 
     public SaleSummaryDTO(Sale sale) {
@@ -33,6 +36,8 @@ public class SaleSummaryDTO {
         this.totalAmount = sale.getTotalAmount() != null ? sale.getTotalAmount() : 0.0;
         this.items = sale.getItems().stream().map(SaleItemDTO::new).toList();
         this.customerPhone=sale.getCustomerPhone();
+        this.isDeleted = sale.getIsDeleted();
+        this.deletedAt = sale.getDeletedAt();
     }
 
     // getters

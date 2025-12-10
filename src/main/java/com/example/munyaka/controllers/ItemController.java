@@ -59,7 +59,7 @@ public class ItemController {
     @PatchMapping("/{id}/stock")
     public ResponseEntity<Void> updateItemStock(
             @PathVariable Long id,
-            @RequestParam Integer stockQuantity) {
+            @RequestParam Double stockQuantity) {
         itemService.updateItemStock(id, stockQuantity);
         return ResponseEntity.ok().build();
     }

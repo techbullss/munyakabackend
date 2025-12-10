@@ -30,7 +30,7 @@ public class ItemRequestDTO {
 
     @NotNull(message = "Stock quantity is required")
     @Positive(message = "Stock quantity must be positive")
-    private Integer stockQuantity;
+    private Double stockQuantity;
 
     @NotNull(message = "Selling price is required")
     @Positive(message = "Selling price must be positive")

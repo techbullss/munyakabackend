@@ -1,11 +1,13 @@
 package com.example.munyaka.DTO;
 
 import com.example.munyaka.tables.SaleItemDTO;
+import jakarta.persistence.Column;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Data
@@ -24,5 +26,8 @@ public class SaleDTO {
     private String paymentMethod;
     private Double profit;
     private String paymentStatus;
+    private Boolean isDeleted;
+    private LocalDate deletedAt;
+
     private List<SaleItemDTOs> items;
 }

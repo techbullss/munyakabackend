@@ -2,6 +2,7 @@ package com.example.munyaka.repository;
 
 import com.example.munyaka.DTO.TopProduct;
 import com.example.munyaka.tables.Item;
+import com.example.munyaka.tables.SellingUnit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -13,6 +14,7 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
     List<Item> findByCategory(String category);
 
     List<Item> findByItemNameContainingIgnoreCase(String itemName);
+    boolean existsByItemNameIgnoreCaseAndSellingUnit(String itemName, SellingUnit sellingUnit);
 
     List<Item> findBySupplier(String supplier);
 

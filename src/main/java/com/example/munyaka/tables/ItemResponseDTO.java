@@ -17,7 +17,7 @@ public class ItemResponseDTO {
     private String category;
     private String description;
     private Double price;
-    private Integer stockQuantity;
+    private double stockQuantity;
     private Double sellingPrice;
     private String supplier;
     private SellingUnit sellingUnit;
