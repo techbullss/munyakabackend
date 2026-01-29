@@ -34,9 +34,9 @@ public class PurchaseService {
         return new PurchaseResponse(
                 p.getId(),
                 p.getSupplierName(),
-                p.getPurchaseDate(),
-                p.getSupplierPhone(),
-                p.getSupplierEmail(),
+                p.getSupplierEmail(),      // Position 3: supplierEmail
+                p.getSupplierPhone(),      // Position 4: supplierPhone
+                p.getPurchaseDate(),       // Position 5: purchaseDate
                 p.getTotalAmount(),
                 p.getAmountPaid(),
                 p.getBalanceDue(),

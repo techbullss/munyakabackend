@@ -29,5 +29,7 @@ public class SaleItem {
     private Double total;
      private double profit;
      private String notes;
+    @Column(nullable = true)
+    private Double unitPrice;
 }
 

@@ -7,9 +7,9 @@ import java.util.List;
 public record PurchaseResponse(
         Long id,
         String supplierName,
-        LocalDate supplierEmail,
+        String supplierEmail,
         String supplierPhone,
-        String purchaseDate,
+        LocalDate purchaseDate,
         BigDecimal totalAmount,
         BigDecimal amountPaid,
         BigDecimal balanceDue,

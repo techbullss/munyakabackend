@@ -136,4 +136,24 @@ public class RentalTransactionController {
     public List<RentalTransaction> getPendingPaymentRentals() {
         return rentalTransactionService.getPendingPaymentRentals();
     }
+    // Add this method to your RentalTransactionController
+    @PutMapping("/{id}/status")
+    public ResponseEntity<?> updateRentalStatus(@PathVariable Long id, @RequestBody Map<String, String> statusUpdate) {
+        try {
+            String newStatus = statusUpdate.get("status");
+            RentalTransaction updatedTransaction = rentalTransactionService.updateRentalStatus(id, newStatus);
+            return ResponseEntity.ok(updatedTransaction);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteRentalTransaction(@PathVariable Long id) {
+        try {
+            rentalTransactionService.deleteRentalTransaction(id);
+            return ResponseEntity.ok().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }
