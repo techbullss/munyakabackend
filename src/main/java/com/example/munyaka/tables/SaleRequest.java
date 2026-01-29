@@ -16,7 +16,6 @@ public class SaleRequest {
     private double totalAmount;
     private double amountPaid;
     private double changeAmount;
-    private Double price;
     private List<SaleItemRequest> items;
 }
 

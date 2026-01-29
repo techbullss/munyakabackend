@@ -7,14 +7,14 @@ import com.example.munyaka.tables.RentalItem;
 import com.example.munyaka.tables.RentalPayment;
 import com.example.munyaka.tables.RentalTransaction;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
 
 @Service
 public class RentalTransactionService {
@@ -29,8 +29,7 @@ public class RentalTransactionService {
     private RentalPaymentRepository rentalPaymentRepository;
 
     public List<RentalTransaction> getAllRentalTransactions() {
-        // Sort by ID in descending order (newest first)
-        return rentalTransactionRepository.findAll(Sort.by(Sort.Direction.DESC, "id"));
+        return rentalTransactionRepository.findAll();
     }
 
     public Optional<RentalTransaction> getRentalTransactionById(Long id) {
@@ -93,7 +92,7 @@ public class RentalTransactionService {
         rentalItemRepository.save(item);
 
         // Set status to ACTIVE since the item is now rented
-        rentalTransaction.setStatus("PENDING");
+        rentalTransaction.setStatus("ACTIVE");
         rentalTransaction.setCreatedAt(LocalDateTime.now());
 
         return rentalTransactionRepository.save(rentalTransaction);
@@ -130,47 +129,18 @@ public class RentalTransactionService {
             rental.setDepositPaid(rental.getDepositPaid() + payment.getAmount());
         }
 
-        // Save payment first
-        RentalPayment savedPayment = rentalPaymentRepository.save(payment);
-
-        // Check if item has been returned (has return date)
-        boolean isItemReturned = rental.getRentalEndDate() != null || rental.getReturnedAt() != null;
-
-        // Update status based on whether item is returned and payment status
-        if (rental.getBalanceDue() <= 0) {
-            // Full payment made
-            if (isItemReturned) {
-                // Item already returned - mark as COMPLETED
-                rental.setStatus("COMPLETED");
-            } else {
-                // Item not returned yet - check current status
-                if ("PARTIALLY_PAID".equals(rental.getStatus()) || "PENDING".equals(rental.getStatus())) {
-                    // Item not returned but full payment made - mark as COMPLETED_PENDING_RETURN
-                    rental.setStatus("COMPLETED_PENDING_RETURN");
-                } else if ("COMPLETED_PENDING_PAYMENT".equals(rental.getStatus())) {
-                    // Item returned but was pending payment - now mark as COMPLETED
-                    rental.setStatus("COMPLETED");
-                } else {
-                    // For any other status, mark as PAID (item not returned yet)
-                    rental.setStatus("PAID");
-                }
-            }
-        } else {
-            // Partial payment made
-            if (rental.getAmountPaid() > 0) {
-                if (isItemReturned) {
-                    // Item returned but partial payment - keep as COMPLETED_PENDING_PAYMENT
-                    if (!"COMPLETED_PENDING_PAYMENT".equals(rental.getStatus())) {
-                        rental.setStatus("COMPLETED_PENDING_PAYMENT");
-                    }
-                } else {
-                    // Item not returned and partial payment
-                    rental.setStatus("PARTIALLY_PAID");
-                }
+        // DON'T change status if item is already returned or completed
+        // Only update status for active rentals
+        if (!rental.getStatus().startsWith("COMPLETED") && !"CANCELLED".equals(rental.getStatus())) {
+            if (rental.getBalanceDue() <= 0) {
+                rental.setStatus("PAID");
+            } else if (rental.getAmountPaid() > 0) {
+                rental.setStatus("PARTIALLY_PAID");
             }
         }
 
-        // Save updated rental
+        // Save payment and update rental
+        RentalPayment savedPayment = rentalPaymentRepository.save(payment);
         rentalTransactionRepository.save(rental);
 
         return savedPayment;
@@ -187,11 +157,6 @@ public class RentalTransactionService {
         // Validate return condition
         if (returnCondition == null || returnCondition.trim().isEmpty()) {
             throw new RuntimeException("Return condition is required");
-        }
-
-        // Check if item is already returned
-        if (rental.getRentalEndDate() != null || rental.getReturnedAt() != null) {
-            throw new RuntimeException("This rental item has already been returned on " + rental.getRentalEndDate());
         }
 
         // Calculate late fees if returned after expected date
@@ -304,26 +269,13 @@ public class RentalTransactionService {
         return savedPayment;
     }
 
-    public void deleteRentalTransaction(Long id) {
-        RentalTransaction rentalTransaction = rentalTransactionRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Rental transaction not found"));
-
-        // Add any business logic checks here (e.g., only allow deletion of certain statuses)
-        if (!rentalTransaction.getStatus().equals("CANCELLED") &&
-                !rentalTransaction.getStatus().equals("COMPLETED")) {
-            throw new RuntimeException("Only cancelled or completed rentals can be deleted");
-        }
-
-        rentalTransactionRepository.delete(rentalTransaction);
-    }
-
     @Transactional
     public RentalTransaction cancelRental(Long rentalId, String reason) {
         RentalTransaction rental = rentalTransactionRepository.findById(rentalId)
                 .orElseThrow(() -> new RuntimeException("Rental transaction not found"));
 
         // Only allow cancellation of active rentals
-        if (!"PENDING".equals(rental.getStatus()) && !"PARTIALLY_PAID".equals(rental.getStatus())) {
+        if (!"ACTIVE".equals(rental.getStatus()) && !"PARTIALLY_PAID".equals(rental.getStatus())) {
             throw new RuntimeException("Cannot cancel rental with status: " + rental.getStatus());
         }
 
@@ -363,30 +315,5 @@ public class RentalTransactionService {
 
     public List<RentalTransaction> getCompletedPendingPaymentRentals() {
         return rentalTransactionRepository.findByStatus("COMPLETED_PENDING_PAYMENT");
-    }
-
-    public RentalTransaction updateRentalStatus(Long id, String newStatus) {
-        RentalTransaction rental = rentalTransactionRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Rental transaction not found"));
-
-        // Validate status transition
-        if (isValidStatusTransition(rental.getStatus(), newStatus)) {
-            rental.setStatus(newStatus);
-            return rentalTransactionRepository.save(rental);
-        } else {
-            throw new RuntimeException("Invalid status transition from " + rental.getStatus() + " to " + newStatus);
-        }
-    }
-
-    private boolean isValidStatusTransition(String currentStatus, String newStatus) {
-        // Define your valid status transitions
-        Map<String, List<String>> validTransitions = Map.of(
-                "PENDING", Arrays.asList("PAID", "CANCELLED"),
-                "PAID", Arrays.asList("COMPLETED_PENDING_RETURN", "COMPLETED_PENDING_PAYMENT", "COMPLETED", "OVERDUE"),
-                "COMPLETED_PENDING_RETURN", Arrays.asList("COMPLETED"),
-                "COMPLETED_PENDING_PAYMENT", Arrays.asList("COMPLETED")
-        );
-
-        return validTransitions.getOrDefault(currentStatus, new ArrayList<>()).contains(newStatus);
     }
 }

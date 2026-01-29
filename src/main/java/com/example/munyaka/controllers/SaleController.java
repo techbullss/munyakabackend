@@ -36,7 +36,6 @@ public class SaleController {
     private SaleService saleService;
 
     // CREATE SALE
-
     @PostMapping
     public SaleReceiptResponse createSale(@RequestBody SaleRequest request) {
         Sale sale = new Sale();
@@ -65,41 +64,38 @@ public class SaleController {
             saleItem.setQuantity(reqItem.getQuantity());
             saleItem.setTotal(reqItem.getTotal());
             saleItem.setDiscountAmount(reqItem.getDiscountAmount());
-            saleItem.setUnitPrice(Double.valueOf(reqItem.getPrice())); // ADD THIS LINE - store edited price
             saleItems.add(saleItem);
 
-            // Use the price from request (cart) not from product
-            total += reqItem.getTotal(); // Already includes discount
+            total += product.getSellingPrice() * reqItem.getQuantity();
 
-            // Profit calculation per item - use cart price for calculation
-            double sellingPrice = reqItem.getPrice() != null ? reqItem.getPrice() : product.getSellingPrice();
-            double profit = (sellingPrice - product.getPrice() - (reqItem.getDiscountAmount() != null ? reqItem.getDiscountAmount() : 0.0))
+            // Profit calculation per item
+            double profit = (product.getSellingPrice() - product.getPrice() - reqItem.getDiscountAmount())
                     * reqItem.getQuantity();
             totalProfit += profit;
 
-            // Build receipt item - use cart price
+            // Build receipt item
             ReceiptItem dto = new ReceiptItem();
             dto.setProductName(product.getItemName());
             dto.setQuantity(reqItem.getQuantity());
-            dto.setUnitPrice(sellingPrice); // Use cart price
-            dto.setLineTotal(reqItem.getTotal());
+            dto.setUnitPrice(product.getSellingPrice());
+            dto.setLineTotal(product.getSellingPrice() * reqItem.getQuantity());
             dto.setProfit(profit);
             receiptItems.add(dto);
         }
 
         sale.setItems(saleItems);
         sale.setProfit(totalProfit);
-        sale.setTotalAmount(total); // Set the calculated total
 
         // Determine payment status
+        double totalAmount = request.getTotalAmount();
         double paidAmount = request.getAmountPaid();
 
         // Status logic
         if (paidAmount == 0) {
             sale.setPaymentStatus("PENDING");
-        } else if (paidAmount < total) {
+        } else if (paidAmount < totalAmount) {
             sale.setPaymentStatus("PARTIAL");
-        } else if (paidAmount == total) {
+        } else if (paidAmount == totalAmount) {
             sale.setPaymentStatus("PAID");
         } else {
             sale.setPaymentStatus("OVERPAID");
@@ -164,7 +160,6 @@ public class SaleController {
                 double newProfit = 0.0;
 
                 // Add new/updated items
-                // Inside the for loop in editSaleWithItems method:
                 for (SaleItemRequest itemRequest : request.getItems()) {
                     Item product = itemRepository.findById(itemRequest.getProductId())
                             .orElseThrow(() -> new RuntimeException(
@@ -176,10 +171,7 @@ public class SaleController {
                     saleItem.setQuantity(itemRequest.getQuantity());
                     saleItem.setTotal(itemRequest.getTotal());
 
-                    // Store the edited price from request
-                    saleItem.setUnitPrice(itemRequest.getPrice() != null ?
-                            itemRequest.getPrice() : product.getSellingPrice());
-
+                    // FIXED: Using != (not equals) operator
                     saleItem.setDiscountAmount(itemRequest.getDiscountAmount() != null ?
                             itemRequest.getDiscountAmount() : 0.0);
 
@@ -188,15 +180,11 @@ public class SaleController {
                     // Calculate new totals
                     newTotal += itemRequest.getTotal();
 
-                    // Calculate profit for this item - use cart price (edited price)
-                    double sellingPrice = itemRequest.getPrice() != null ?
-                            itemRequest.getPrice() : product.getSellingPrice();
+                    // Calculate profit for this item
                     double discountAmount = itemRequest.getDiscountAmount() != null ?
                             itemRequest.getDiscountAmount() : 0.0;
-                    double discountPerUnit = discountAmount / itemRequest.getQuantity();
-
-                    // Profit calculation: (selling price - buying price - discount per unit) * quantity
-                    double profit = (sellingPrice - product.getPrice() - discountPerUnit) * itemRequest.getQuantity();
+                    double profit = (product.getSellingPrice() - product.getPrice() - discountAmount)
+                            * itemRequest.getQuantity();
                     newProfit += profit;
                 }
 
